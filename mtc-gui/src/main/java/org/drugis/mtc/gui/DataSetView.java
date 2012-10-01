@@ -67,7 +67,7 @@ public class DataSetView extends JPanel {
 		mainPane.setDividerLocation(200);
 		add(mainPane, BorderLayout.CENTER);
 	}
-	
+
 	private JComponent buildEntityPane() {
 		JTabbedPane tabbedPane = new JTabbedPane();
 		tabbedPane.setMinimumSize(new Dimension(200, 400));
@@ -84,7 +84,7 @@ public class DataSetView extends JPanel {
 	}
 
 	public JComponent buildDataPane() {
-		JTable table = new JTable(new MeasurementTableModel(d_model));
+		JTable table = new JTable(d_model.getMeasurementTableModel());
 		TableCellRenderer numberRenderer = new DefaultTableCellRenderer() {
 			private static final long serialVersionUID = -1979169367189416419L;
 
@@ -115,6 +115,10 @@ public class DataSetView extends JPanel {
 				}
 			}
 		});
+
+		// The cell renderers do not handle selection appropriately, so disable it.
+		table.setCellSelectionEnabled(false);
+
 		return new JScrollPane(table);
 	}
 
@@ -125,7 +129,7 @@ public class DataSetView extends JPanel {
 		panel.add(BasicComponentFactory.createComboBox(typeSelect));
 		panel.add(new JLabel(" dataset about "));
 		JTextField descriptionField = BasicComponentFactory.createTextField(d_model.getDescription(), false);
-		descriptionField.setColumns(20);
+		descriptionField.setColumns(15);
 		panel.add(descriptionField);
 		return panel;
 	}

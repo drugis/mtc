@@ -47,18 +47,12 @@ import javax.xml.bind.JAXBException;
 import org.drugis.common.ImageLoader;
 import org.drugis.common.gui.FileLoadDialog;
 import org.drugis.common.gui.FileSaveDialog;
-import org.drugis.common.validation.ListMinimumSizeModel;
-import org.drugis.mtc.data.DataType;
-import org.drugis.mtc.graph.GraphUtil;
+import org.drugis.common.gui.GUIHelper;
+import org.drugis.common.gui.LookAndFeel;
 import org.drugis.mtc.model.JAXBHandler;
 import org.drugis.mtc.model.Network;
-import org.drugis.mtc.parameterization.NetworkModel;
 
-import com.jgoodies.binding.adapter.BasicComponentFactory;
 import com.jgoodies.binding.beans.PropertyAdapter;
-import com.jgoodies.binding.beans.PropertyConnector;
-import com.jgoodies.binding.list.ArrayListModel;
-import com.jgoodies.binding.list.ObservableList;
 import com.jgoodies.binding.value.AbstractValueModel;
 import com.jgoodies.binding.value.ValueModel;
 
@@ -69,20 +63,33 @@ public class MainWindow extends JFrame {
 		private ValueModel d_file;
 		private String d_value;
 
-		public FileNameModel(DataSetModel dataSet) {
-			d_file = new PropertyAdapter<DataSetModel>(dataSet, DataSetModel.PROPERTY_FILE, true);
-			d_file.addValueChangeListener(new PropertyChangeListener() {
+		public FileNameModel() {
+			final PropertyChangeListener listener = new PropertyChangeListener() {
 				public void propertyChange(PropertyChangeEvent arg0) {
 					String oldValue = d_value;
 					d_value = calc();
 					fireValueChange(oldValue, d_value);
 				}
+			};
+			MainWindow.this.addPropertyChangeListener(new PropertyChangeListener() {
+				@Override
+				public void propertyChange(PropertyChangeEvent evt) {
+					if (evt.getPropertyName().equals(MainWindow.PROPERTY_MODEL)) {
+						String oldValue = d_value;
+						attachFileListener(listener);
+						d_value = calc();
+						fireValueChange(oldValue, d_value);
+					}
+				}
 			});
+			attachFileListener(listener);
 			d_value = calc();
 		}
 
 		private String calc() {
-			if (d_file.getValue() == null) {
+			if (d_file == null) {
+				return null;
+			} else if (d_file.getValue() == null) {
 				return "new file";
 			} else {
 				return ((File)d_file.getValue()).getName();
@@ -97,25 +104,61 @@ public class MainWindow extends JFrame {
 			throw new UnsupportedOperationException();
 		}
 
+		private void attachFileListener(final PropertyChangeListener listener) {
+			if (d_file != null) {
+				d_file.removeValueChangeListener(listener);
+			}
+			if (d_model != null) {
+				d_file = new PropertyAdapter<DataSetModel>(d_model, DataSetModel.PROPERTY_FILE, true);
+				d_file.addValueChangeListener(listener);
+			}
+		}
 	}
 
 	public static final ImageLoader IMAGELOADER = new ImageLoader("/org/drugis/mtc/gui/");
 	private static final long serialVersionUID = -5199299195474870618L;
 
-	public static void main(String[] args) {
-		new MainWindow().setVisible(true);
+	public static final String PROPERTY_MODEL = "model";
+	private static final String BUG_REPORTING_TEXT = "This is probably a bug in GeMTC. Please help us improve GeMTC by reporting this bug to us.";
+
+	public static void main(final String[] args) {
+		Runnable main = new Runnable() {
+			public void run() {
+				GUIHelper.initializeLookAndFeel();
+				LookAndFeel.configureJFreeChartLookAndFeel();
+				MainWindow main = new MainWindow();
+				main.setVisible(true);
+
+				if (args.length > 0) {
+					try {
+						main.addModel(loadModel(args[0]));
+					} catch (Exception e) {
+
+					}
+				}
+
+				// Window disposal debug
+				System.out.println(System.currentTimeMillis() + " Started...");
+				Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+					@Override
+					public void run() {
+						System.out.println(System.currentTimeMillis() + " Stopped!");
+					}
+				}));
+			}
+		};
+		GUIHelper.startApplicationWithErrorHandler(main, BUG_REPORTING_TEXT);
 	}
 
-	private JTabbedPane d_mainPane;
-	private ObservableList<DataSetModel> d_models = new ArrayListModel<DataSetModel>();
+	private DataSetModel d_model = null;
+	private FileNameModel d_fileNameModel;
 
 	public MainWindow() {
-		super(AppInfo.getAppName() + " " + AppInfo.getAppVersion());
+		super();
 		createMainWindow();
 	}
-	
-	
-	public MainWindow(final Network network) { 
+
+	public MainWindow(final Network network) {
 		this();
 		final DataSetModel model = new DataSetModel(network);
 		SwingUtilities.invokeLater(new Runnable() {
@@ -125,23 +168,39 @@ public class MainWindow extends JFrame {
 		});
 	}
 
-	private void createMainWindow() { 
-		setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);			
-		
+	private void createMainWindow() {
+		setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+		setLocationByPlatform(true);
+
 		setAppIcon(this);
 
 		setMinimumSize(new Dimension(750, 550));
 		setLayout(new BorderLayout());
-		
-		d_mainPane = new JTabbedPane();
+
 		add(createToolBar(), BorderLayout.NORTH);
-		add(d_mainPane , BorderLayout.CENTER);
+
+		d_fileNameModel = new FileNameModel();
+		d_fileNameModel.addValueChangeListener(new PropertyChangeListener() {
+			@Override
+			public void propertyChange(PropertyChangeEvent evt) {
+				updateTitle();
+			}
+		});
+		updateTitle();
 	}
-	
+
+	private void updateTitle() {
+		String title = AppInfo.getAppName() + " " + AppInfo.getAppVersion();
+		if (d_fileNameModel.getValue() != null) {
+			title += " - " + d_fileNameModel.getValue();
+		}
+		setTitle(title);
+	}
+
 	public static void setAppIcon(JFrame frame) {
 		Image image = null;
 		try {
-			image = ((ImageIcon)MainWindow.IMAGELOADER.getIcon("appicon.png")).getImage();
+			image = ((ImageIcon)MainWindow.IMAGELOADER.getIcon(FileNames.ICON_GEMTC)).getImage();
 		} catch (Exception e) {
 			// suppress
 		}
@@ -149,16 +208,27 @@ public class MainWindow extends JFrame {
 			frame.setIconImage(image);
 		}
 	}
-	
+
 	private void addModel(DataSetModel model) {
-		int index = d_models.size();
-		d_models.add(model);
-		DataSetView view = new DataSetView(MainWindow.this, model);
-		JComponent tabHeader = BasicComponentFactory.createLabel(new FileNameModel(model));
-		d_mainPane.add(view);
-		d_mainPane.setTabComponentAt(index, tabHeader);
+		if (d_model == null) {
+			d_model = model;
+			firePropertyChange(PROPERTY_MODEL, null, d_model);
+
+			DataSetView dataView = new DataSetView(MainWindow.this, model);
+			JComponent analysisView = new AnalysisView(MainWindow.this, model);
+
+			JTabbedPane pane = new JTabbedPane();
+			pane.addTab("Data", dataView);
+			pane.addTab("Analysis", analysisView);
+			add(pane, BorderLayout.CENTER);
+			pack();
+		} else {
+			MainWindow window = new MainWindow();
+			window.addModel(model);
+			window.setVisible(true);
+		}
 	}
-	
+
 	private JToolBar createToolBar() {
         JToolBar toolbar = new JToolBar();
         toolbar.setFloatable(false);
@@ -166,14 +236,14 @@ public class MainWindow extends JFrame {
 		toolbar.add(createNewButton());
 		toolbar.add(createOpenButton());
 		toolbar.add(createSaveButton());
-		toolbar.add(createGenerateButton());
+		toolbar.addSeparator();
 		toolbar.add(createAboutButton());
 
         return toolbar;
 	}
 
 	private JButton createNewButton() {
-		JButton newButton = new JButton("New", MainWindow.IMAGELOADER.getIcon("newfile.gif"));
+		JButton newButton = new JButton("New", MainWindow.IMAGELOADER.getIcon(FileNames.ICON_NEW));
 		newButton.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
 				addModel(new DataSetModel());
@@ -183,17 +253,14 @@ public class MainWindow extends JFrame {
 	}
 
 	private JButton createOpenButton() {
-		JButton openButton = new JButton("Open", MainWindow.IMAGELOADER.getIcon("openfile.gif"));
+		JButton openButton = new JButton("Open", MainWindow.IMAGELOADER.getIcon(FileNames.ICON_OPEN));
 		openButton.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
 				FileLoadDialog dialog = new FileLoadDialog(MainWindow.this, "gemtc", "GeMTC files") {
-					public void doAction(String path, String extension) {
-						final File file = new File(path);
-						final DataSetModel model = readFromFile(file);
-						model.setFile(file);
+					public void doAction(final String path, final String extension) {
 						SwingUtilities.invokeLater(new Runnable() {
 							public void run() {
-								addModel(model);
+								addModel(loadModel(path));
 							}
 						});
 					}
@@ -205,11 +272,11 @@ public class MainWindow extends JFrame {
 	}
 
 	private JButton createSaveButton() {
-		JButton saveButton = new JButton("Save", MainWindow.IMAGELOADER.getIcon("savefile.gif"));
+		JButton saveButton = new JButton("Save", MainWindow.IMAGELOADER.getIcon(org.drugis.mtc.gui.FileNames.ICON_SAVEFILE));
 		saveButton.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent arg0) {
 				try {
-					final DataSetModel model = getActiveModel();
+					final DataSetModel model = getModel();
 					if (model.getFile() == null) {
 						FileSaveDialog dialog = new FileSaveDialog(MainWindow.this, "gemtc", "GeMTC files") {
 							public void doAction(String path, String extension) {
@@ -230,38 +297,8 @@ public class MainWindow extends JFrame {
 		return saveButton;
 	}
 
-	private JButton createGenerateButton() {
-		JButton button = new JButton("Generate", MainWindow.IMAGELOADER.getIcon("generate.gif"));
-		button.addActionListener(new ActionListener() {
-
-			public void actionPerformed(ActionEvent arg0) {
-				final DataSetModel model = getActiveModel();
-				if (model.getTreatments().size() < 2 || model.getStudies().size() < 2) {
-					JOptionPane.showMessageDialog(MainWindow.this, "You need to define at least two studies and treatments.", "Cannot generate model", JOptionPane.WARNING_MESSAGE);
-					return;
-				}
-				if (model.getMeasurementType().getValue() == DataType.NONE) {
-					JOptionPane.showMessageDialog(MainWindow.this, "Model generation not possible with 'None' measuments.", "Cannot generate model", JOptionPane.WARNING_MESSAGE);
-					return;
-				}
-				Network network = model.getNetwork();
-				if (!GraphUtil.isWeaklyConnected(NetworkModel.createStudyGraph(network))) {
-					JOptionPane.showMessageDialog(MainWindow.this, "The network needs to be connected in order to generate an MTC model.", "Cannot generate model", JOptionPane.WARNING_MESSAGE);
-					return;
-				}
-				// FIXME: further validation / checking of data.
-				final String name = model.getFile() == null ? "unnamed" : model.getFile().getName().replaceFirst(".gemtc$", "");
-				CodeGenerationDialog codeGenerationDialog = new CodeGenerationDialog(MainWindow.this, name, network);
-				codeGenerationDialog.setVisible(true);
-			}
-			
-		});
-		PropertyConnector.connectAndUpdate(new ListMinimumSizeModel(d_models, 1), button, "enabled");
-		return button;
-	}
-	
 	private JButton createAboutButton() {
-		JButton aboutButton = new JButton("About", MainWindow.IMAGELOADER.getIcon("about.gif"));
+		JButton aboutButton = new JButton("About", MainWindow.IMAGELOADER.getIcon(FileNames.ICON_ABOUT));
 		aboutButton.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
 				(new AboutDialog(MainWindow.this)).setVisible(true);
@@ -269,8 +306,8 @@ public class MainWindow extends JFrame {
 		});
 		return aboutButton;
 	}
-	
-	private DataSetModel readFromFile(final File file) {
+
+	private static DataSetModel readFromFile(final File file) {
 		try {
 			InputStream is = new FileInputStream(file);
 			return readFromStream(is);
@@ -278,8 +315,8 @@ public class MainWindow extends JFrame {
 			throw new RuntimeException(e);
 		}
 	}
-	
-	private DataSetModel readFromStream(final InputStream is) {
+
+	private static DataSetModel readFromStream(final InputStream is) {
 		try {
 			Network network = JAXBHandler.readNetwork(is);
 			return new DataSetModel(network);
@@ -287,8 +324,8 @@ public class MainWindow extends JFrame {
 			throw new RuntimeException(e);
 		}
 	}
-	
-	private void writeToFile(final DataSetModel model, final File file) {
+
+	private static void writeToFile(final DataSetModel model, final File file) {
 		try {
 			OutputStream os = new FileOutputStream(file);
 			JAXBHandler.writeNetwork(model.getNetwork(), os);
@@ -299,12 +336,14 @@ public class MainWindow extends JFrame {
 		}
 	}
 
-	private DataSetModel getActiveModel() {
-		int idx = d_mainPane.getSelectedIndex();
-		if (idx >= 0) {
-			return d_models.get(idx);
-		} else {
-			return null;
-		}
+	public DataSetModel getModel() {
+		return d_model;
+	}
+
+	private static DataSetModel loadModel(String path) {
+		final File file = new File(path);
+		final DataSetModel model = readFromFile(file);
+		model.setFile(file);
+		return model;
 	}
 }
