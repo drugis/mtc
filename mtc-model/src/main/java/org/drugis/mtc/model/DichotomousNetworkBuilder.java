@@ -17,14 +17,18 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.drugis.mtc;
+package org.drugis.mtc.model;
 
 import org.apache.commons.collections15.Transformer;
 import org.drugis.mtc.data.DataType;
-import org.drugis.mtc.model.Measurement;
-import org.drugis.mtc.model.Treatment;
 
 public class DichotomousNetworkBuilder<TreatmentType> extends NetworkBuilder<TreatmentType> {
+	public static DichotomousNetworkBuilder<Treatment> createSimple() {
+		return new DichotomousNetworkBuilder<Treatment>(
+				new NetworkBuilder.TreatmentIdTransformer(),
+				new NetworkBuilder.TreatmentDescriptionTransformer());
+	}
+	
 	public DichotomousNetworkBuilder() {
 		super(DataType.RATE);
 	}

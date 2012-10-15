@@ -19,8 +19,12 @@
 
 package org.drugis.mtc.gui.results;
 
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
+
 import javax.swing.JPanel;
 import javax.swing.JTable;
+import javax.swing.SwingUtilities;
 
 import org.drugis.common.gui.table.TablePanel;
 import org.drugis.mtc.model.Treatment;
@@ -58,13 +62,27 @@ public class InconsistencyView extends JPanel {
 
 		builder.addSeparator("Relative effects", cc.xy(1, row));
 		row += 2;
-		final JTable reTable = ResultsComponentFactory.buildRelativeEffectsTable(d_treatments, d_wrapper, d_isDichotomous, true);
+		final JTable reTable = ResultsComponentFactory.buildRelativeEffectsTable(d_treatments, d_wrapper, d_isDichotomous, false);
 		builder.add(new TablePanel(reTable), cc.xy(1, row));
 		row += 2;
 
 		builder.addSeparator("Inconsistency Factors", cc.xy(1, row));
 		row += 2;
 		final JTable inconTable = ResultsComponentFactory.buildInconsistencyFactors(d_wrapper, d_presentation.isModelConstructed());
+
+		d_presentation.isModelConstructed().addValueChangeListener(new PropertyChangeListener() {
+			public void propertyChange(final PropertyChangeEvent event) {
+				if (event.getNewValue().equals(true)) {
+					final Runnable r = new Runnable() {
+						public void run() {
+							inconTable.doLayout();
+						}
+					};
+					SwingUtilities.invokeLater(r);
+				}
+			}
+		});
+
 		builder.add(new TablePanel(inconTable), cc.xy(1, row));
 		row += 2;
 

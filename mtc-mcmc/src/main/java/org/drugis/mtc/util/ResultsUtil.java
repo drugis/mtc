@@ -17,10 +17,21 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.drugis.mtc;
+package org.drugis.mtc.util;
 
-public enum ModelType {
-	CONSISTENCY,
-	INCONSISTENCY,
-	NODESPLIT;
+import org.drugis.mtc.MCMCResults;
+import org.drugis.mtc.Parameter;
+
+public class ResultsUtil {
+	public static double[] getSamples(MCMCResults r, int p, int c) {
+		double[] samples = new double[r.getNumberOfSamples()];
+		for (int i = 0; i < r.getNumberOfSamples(); ++i) {
+			samples[i] = r.getSample(p, c, i);
+		}
+		return samples;
+	}
+
+	public static double[] getSamples(MCMCResults r, Parameter p, int c) {
+		return getSamples(r, r.findParameter(p), c);
+	}
 }
