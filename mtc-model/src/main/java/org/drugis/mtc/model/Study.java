@@ -27,6 +27,7 @@ import javax.xml.bind.annotation.XmlTransient;
 
 import org.apache.commons.collections15.CollectionUtils;
 import org.apache.commons.collections15.Predicate;
+import org.drugis.common.EqualsUtil;
 import org.drugis.common.beans.ObserverManager;
 import org.drugis.mtc.data.DataType;
 import org.drugis.mtc.data.StudyData;
@@ -61,12 +62,10 @@ public class Study extends StudyData implements Observable, Comparable<Study> {
 		return (ObservableList) super.getMeasurementList();
 	}
 	
-	@Override
 	public void addPropertyChangeListener(PropertyChangeListener listener) {
 		d_obsManager.addPropertyChangeListener(listener);
 	}
 
-	@Override
 	public void removePropertyChangeListener(PropertyChangeListener listener) {
 		d_obsManager.addPropertyChangeListener(listener);
 	}
@@ -103,8 +102,21 @@ public class Study extends StudyData implements Observable, Comparable<Study> {
 		}
 		return treatments;
 	}
-
+	
 	@Override
+	public boolean equals(Object o) {
+		if (o != null && o instanceof Study) {
+			Study other = (Study) o;
+			return EqualsUtil.equal(getId(), other.getId());
+		}
+		return false;
+	}
+	
+	@Override
+	public int hashCode() {
+		return EqualsUtil.hashCode(getId());
+	}
+
 	public int compareTo(Study s) {
 		return getId().compareTo(s.getId());
 	}

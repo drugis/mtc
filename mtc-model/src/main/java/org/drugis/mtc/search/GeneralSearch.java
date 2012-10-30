@@ -30,12 +30,11 @@ public abstract class GeneralSearch<State> implements SearchAlgorithm<State> {
 	 */
 	protected abstract void qfn(LinkedList<State> q, List<State> l);
 	
-	@Override
 	public final State search(SearchProblem<State> problem) {
 		LinkedList<State> queue = new LinkedList<State>();
 		queue.add(problem.getInitialState());
 		while (!queue.isEmpty()) {
-			State s = queue.pop();
+			State s = queue.removeFirst();
 			if (problem.isGoal(s)) {
 				return s;
 			}

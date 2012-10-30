@@ -1,12 +1,15 @@
+j.getId <- function(jobj) {
+	.jcall(jobj, "S", "getId")
+}
+
 # Get a list of included treatments from an org.drugis.mtc.model.Network
 mtc.treatments <- function(network) {
 	asTreatment <- function(jobj) { .jcast(jobj, "org/drugis/mtc/model/Treatment") }
-	getId <- function(treatment) { .jcall(treatment, "S", "getId") }
 	getDesc <- function(treatment) { .jcall(treatment, "S", "getDescription") }
 
 	lst <- as.list(.jcall(network, "Lcom/jgoodies/binding/list/ObservableList;", "getTreatments"))
 	lst <- lapply(lst, asTreatment)
-	ids <- sapply(lst, getId)
+	ids <- unlist(sapply(lst, j.getId))
 	as.data.frame(list(
 		id = ids,
 		description = sapply(lst, getDesc)
@@ -19,7 +22,6 @@ mtc.data <- function(network) {
 		class <- paste("org/drugis/mtc/model", type, sep="/")
 		.jcast(jobj, class)
 	}
-	getId <- function(jobj) { .jcall(jobj, "S", "getId") }
 	getBoxedInt <- function(jobj, method) {
 		.jcall(.jcall(jobj, "Ljava/lang/Integer;", method), "I", "intValue")
 	}
@@ -30,7 +32,7 @@ mtc.data <- function(network) {
 	convertNone <- function(m) {
 		t <- .jcall(m$measurement, "Lorg/drugis/mtc/model/Treatment;", "getTreatment")
 		s <- m$study
-		list(study=getId(as("Study", s)), treatment=getId(as("Treatment", t)))
+		list(study=j.getId(as("Study", s)), treatment=j.getId(as("Treatment", t)))
 	}
 	convertDichotomous <- function(m) {
 		measurement <- convertNone(m)
@@ -80,7 +82,41 @@ read.mtc.network <- function(file) {
 	network
 }
 
+mtc.network <- function(description, treatments=NULL, data) {
+  if(!is.data.frame(treatments)) { 
+	  ids <- unlist(lapply(treatments, function(t) { t['id'] }))
+	  treatments <- as.data.frame(list(
+		  id = ids,
+	  	description = unlist(lapply(treatments, function(t) { t['description'] }))
+	  ), row.names = ids)
+  }
+  if(!is.data.frame(data)) { 
+	  data <- t(as.data.frame(lapply(data, data.frame)))
+	  row.names(data) <- seq(1:dim(data)[1])
+  }
+  if(is.null(treatments)) { 
+    treatments = unique(data$treatment)
+  }
+	network <- list(
+		description=description,
+		treatments=treatments,
+		data=data)
+
+	mtc.network.validate(network)
+
+	class(network) <- "mtc.network"
+	network
+}
+
+mtc.network.validate <- function(network) { 
+	stopifnot(nrow(network$treatments) > 0)  
+	stopifnot(nrow(network$data) > 0)
+	stopifnot(all(network$data[,'treatment'] %in% network$treatment$id))
+}
+
 mtc.network.as.java <- function(network) {
+	mtc.network.validate(network)
+
 	treatment <- function(row) {
 		treatment <- .jnew("org/drugis/mtc/model/Treatment", row['id'], row['description'])
 		.jcast(treatment, "java/lang/Object")
@@ -115,11 +151,10 @@ mtc.network.as.java <- function(network) {
 	} else {
 		list(append=appendNone, builder=createBuilder("None"))
 	}
-
 	# create network
 	apply(network$data, 1, function(row) { builder$append(builder$builder, row) })
 	j.network <- .jcall(builder$builder, "Lorg/drugis/mtc/model/Network;", "buildNetwork")
-	.jcall(j.network, "V", "setDescription", network$description)
+	.jcall(j.network, "V", "setDescription", .jnew("java/lang/String", network$description))
 
 	j.network
 }
@@ -133,12 +168,12 @@ write.mtc.network <- function(network, file="") {
 	os <- .jcast(bos, "java/io/OutputStream")
 	.jcall("org/drugis/mtc/model/JAXBHandler", "V",
 		"writeNetwork", j.network, os)
-	cat(.jcall(bos, "S", "toString"))
+	write(.jcall(bos, "S", "toString"), file=file)
 }
 
 # Create the specific model (consistency/inconsistency/nodesplit)
 # FIXME: support nodesplit
-mtc.model <- function(network, type="Consistency", t1=NULL, t2=NULL, factor=2.5, n.chain=4) {
+mtc.model <- function(network, type="Consistency", factor=2.5, n.chain=4) {
 	typeMap <- c(
 		'Consistency'='Consistency',
 		'consistency'='Consistency',
@@ -186,13 +221,34 @@ mtc.model <- function(network, type="Consistency", t1=NULL, t2=NULL, factor=2.5,
 	model
 }
 
+comparisons <- function(j.network) {
+	j.cgraph <- .jcall('org/drugis/mtc/parameterization/NetworkModel',
+		'Ledu/uci/ics/jung/graph/UndirectedGraph;',
+		'createComparisonGraph', j.network)
+
+	edges <- as.list(.jcall(j.cgraph, 'Ljava/util/Collection;', 'getEdges'))
+
+	sapply(edges, function(e) {
+		v <- as.list(.jcall(j.cgraph, 'Ljava/util/Collection;', 'getIncidentVertices', e))
+		c(j.getId(v[[1]]), j.getId(v[[2]]))
+	})
+}
+
+mtc.network.comparisons <- function(network) {
+	comparisons(mtc.network.as.java(network))
+}
+
+mtc.model.comparisons <- function(model) {
+	comparisons(model$j.network)
+}
+
 # If is.na(sampler), a sampler will be chosen based on availability, in this order:
 # JAGS, BUGS, YADAS. When the sampler is BUGS, BRugs or R2WinBUGS will be used.
 mtc.run <- function(model, sampler=NA, n.adapt=5000, n.iter=20000, thin=1) {
 	bugs <- c('BRugs', 'R2WinBUGS')
 	jags <- c('rjags')
 	available <- if (is.na(sampler)) {
-		c(jags, bugs)
+		c(jags, bugs, 'YADAS')
 	} else if (sampler == 'BUGS') {
 		bugs
 	} else if (sampler == 'JAGS') {
@@ -217,13 +273,20 @@ mtc.run <- function(model, sampler=NA, n.adapt=5000, n.iter=20000, thin=1) {
 	}
 
 	# Switch on sampler
-	if (sampler == 'YADAS') {
+	samples <- if (sampler == 'YADAS') {
 		mtc.run.yadas(model, n.adapt=n.adapt, n.iter=n.iter, thin=thin)
 	} else if (sampler %in% bugs) {
 		mtc.run.bugs(model, package=sampler, n.adapt=n.adapt, n.iter=n.iter, thin=thin)
 	} else if (sampler %in% jags) {
 		mtc.run.jags(model, package=sampler, n.adapt=n.adapt, n.iter=n.iter, thin=thin)
 	}
+
+	result <- list(
+		samples=samples,
+		model=model,
+		sampler=sampler)
+	class(result) <- "mtc.result"
+	result
 }
 
 # Read JAGS/R input string format to an environment
@@ -244,7 +307,7 @@ mtc.build.syntaxModel <- function(model, is.jags) {
 		model = .jcall(j.syntaxModel, "S", "modelText"),
 		data = jags.as.list(.jcall(j.syntaxModel, "S", "dataText")),
 		inits = lapply(1:model$n.chain, function(i) {jags.as.list(.jcall(j.syntaxModel, "S", "initialValuesText", model$j.generator))}),
-    vars = mtc.parameters(model)
+		vars = c(mtc.parameters(model$j.model), c("sd.d", if (model$type == 'Inconsistency') "sd.w"))
 	)
 }
 
@@ -262,7 +325,7 @@ mtc.run.yadas <- function(model, n.adapt, n.iter, thin) {
 
 	j.yadas <- .jcall('org/drugis/mtc/yadas/YadasModelFactory',
 		'Lorg/drugis/mtc/MixedTreatmentComparison;', 'buildYadasModel', model$j.network, j.model, j.settings)
-  .jcall(j.yadas, "V", 'setExtendSimulation', .jcall('org/drugis/mtc/MCMCModel$ExtendSimulation', 'Lorg/drugis/mtc/MCMCModel$ExtendSimulation;', 'valueOf', 'FINISH'))
+	.jcall(j.yadas, "V", 'setExtendSimulation', .jcall('org/drugis/mtc/MCMCModel$ExtendSimulation', 'Lorg/drugis/mtc/MCMCModel$ExtendSimulation;', 'valueOf', 'FINISH'))
 
 	# Run the YADAS model
 	j.activityTask <- .jcall(j.yadas, 'Lorg/drugis/common/threading/activity/ActivityTask;', 'getActivityTask')
@@ -290,7 +353,7 @@ mtc.run.yadas <- function(model, n.adapt, n.iter, thin) {
 	j.results <- .jcall(j.yadas, 'Lorg/drugis/mtc/MCMCResults;', 'getResults')
 	params <- sapply(as.list(.jcall(j.results, '[Lorg/drugis/mtc/Parameter;', 'getParameters')), function(p) { .jcall(p, 'S', 'getName') })
 	get.samples <- function(chain, i) {
-    .jcall('org/drugis/mtc/util/ResultsUtil', '[D', 'getSamples', j.results, as.integer(i), as.integer(chain))
+		.jcall('org/drugis/mtc/util/ResultsUtil', '[D', 'getSamples', j.results, as.integer(i), as.integer(chain))
 	}
 	as.coda.chain <- function(chain) {
 		samples <- sapply(params, function(p) { get.samples(chain - 1, which(params == p) - 1) })
@@ -301,7 +364,7 @@ mtc.run.yadas <- function(model, n.adapt, n.iter, thin) {
 	as.mcmc.list(lapply(1:model$n.chain, as.coda.chain))
 }
 
-mtc.run.bugs <- function(model, package=sampler, n.adapt=n.adapt, n.iter=n.iter, thin=thin) {
+mtc.run.bugs <- function(model, package, n.adapt=n.adapt, n.iter=n.iter, thin=thin) {
 	if (is.na(package) || !(package %in% c("BRugs", "R2WinBUGS"))) {
 		stop(paste("Package", package, "not supported"))
 	}
@@ -331,9 +394,9 @@ mtc.run.bugs <- function(model, package=sampler, n.adapt=n.adapt, n.iter=n.iter,
 		# with Wine not being able to access the R temporary path.
 		# Can be fixed by creating a temporary directory in the Wine
 		# C: drive:
-		#   mkdir ~/.wine/drive_c/bugstmp
+		#		mkdir ~/.wine/drive_c/bugstmp
 		# And then adding these arguments to the BUGS call:
-		#   working.directory='~/.wine/drive_c/bugstmp', clearWD=TRUE
+		#		working.directory='~/.wine/drive_c/bugstmp', clearWD=TRUE
 	}
 	unlink(file.model)
 
@@ -341,7 +404,7 @@ mtc.run.bugs <- function(model, package=sampler, n.adapt=n.adapt, n.iter=n.iter,
 	data
 }
 
-mtc.run.jags <- function (model, package=sampler, n.adapt=n.adapt, n.iter=n.iter, thin=thin) {
+mtc.run.jags <- function (model, package, n.adapt=n.adapt, n.iter=n.iter, thin=thin) {
 	# generate JAGS model
 	syntax <- mtc.build.syntaxModel(model, is.jags=TRUE)
 
@@ -355,34 +418,14 @@ mtc.run.jags <- function (model, package=sampler, n.adapt=n.adapt, n.iter=n.iter
 	coda.samples(jags, variable.names=syntax$vars, n.iter=n.iter, thin=thin)
 }
 
-# Extract monitored vars from JAGS script (HACK)
-vars.extract <- function(script) {
-	lines <- unlist(strsplit(script, "\n"))
-	monitors <- lines[grepl("^monitor ", lines)]
-	sub("monitor ", "", monitors)
-}
-
-# Create JAGS model, generate required texts
-generate.jags <- function(jagsModel, generator, nchain) {
-	modelTxt <- .jcall(jagsModel, "S", "modelText")
-	data <- jags.as.list(.jcall(jagsModel, "S", "dataText"))
-	inits <- lapply(1:nchain, function(i) {jags.as.list(.jcall(jagsModel, "S", "initialValuesText", generator))})
-	vars <- vars.extract(.jcall(jagsModel, "S", "scriptText", "baseName", integer(1), integer(1), integer(1)))
-	analysis <- jags.as.list(.jcall(jagsModel, "S", "analysisText", "baseName"))
-	list(model=modelTxt, data=data, inits=inits, vars=vars, analysis=analysis)
-}
-
-# Run the model using JAGS
-mtc.jags <- function(mtc.model, nadapt=30000, nsamples=20000) {
-	modelFile <- tempfile()
-	cat(paste(mtc.model$jags$model, "\n", collapse=""), file=modelFile)
-	data <- mtc.model$jags$data
-	inits <- mtc.model$jags$inits
-	jags <- jags.model(modelFile, data=data, inits=inits, nchain=length(inits), n.adapt=nadapt)
-	unlink(modelFile)
-	data <- coda.samples(jags, variable.names=mtc.model$jags$vars, n.iter=nsamples)
-	for(i in 1:length(data)) { 
-		colnames(data[[i]]) <- mtc.model$jags$vars
-	}
-	data
+# Semi-internal utility for loading samples from previous simulations
+# Samples that can be loaded were saved using dput
+read.mtc.result.samples <- function(file, model, sampler=NULL) {
+	samples <- dget(file)
+	result <- list(
+		samples=samples, 
+		model=model, 
+		sampler=sampler)
+	class(result) <- "mtc.result"
+	result
 }

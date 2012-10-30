@@ -87,13 +87,12 @@ public class Treatment extends TreatmentData implements Observable, Comparable<T
 		return "Treatment[" + getId() + "]";
 	}
 
-	@Override
 	public int compareTo(Treatment t) {
 		return getId().compareTo(t.getId());
 	}
 
 	public String format() {
-		if(getDescription() == null || getDescription().isEmpty()) {
+		if(getDescription() == null || getDescription().length() == 0) {
 			return getId();
 		}
 		return getDescription();

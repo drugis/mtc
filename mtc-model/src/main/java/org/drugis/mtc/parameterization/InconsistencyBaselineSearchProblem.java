@@ -26,8 +26,9 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.Map.Entry;
+import java.util.Set;
+import java.util.TreeSet;
 
 import org.apache.commons.collections15.CollectionUtils;
 import org.apache.commons.collections15.Predicate;
@@ -61,7 +62,6 @@ public class InconsistencyBaselineSearchProblem implements SearchProblem<Map<Stu
 		d_cycleClasses = cycleClasses;
 	}
 
-	@Override
 	public Map<Study, Treatment> getInitialState() {
 		Map<Study, Treatment> state = new HashMap<Study, Treatment>();
 		for (Study s : d_studies) {
@@ -73,7 +73,6 @@ public class InconsistencyBaselineSearchProblem implements SearchProblem<Map<Stu
 		return state;
 	}
 
-	@Override
 	public List<Map<Study, Treatment>> getSuccessors(final Map<Study, Treatment> state) {
 		// Find the first study without a baseline
 		Study study = CollectionUtils.find(d_studies, new Predicate<Study>() {
@@ -87,7 +86,8 @@ public class InconsistencyBaselineSearchProblem implements SearchProblem<Map<Stu
 		}
 		
 		// Each treatment generates a successor
-		Set<Treatment> treatments = study.getTreatments();
+		Set<Treatment> treatments = new TreeSet<Treatment>(new TreatmentComparator());
+		treatments.addAll(study.getTreatments());
 		List<Map<Study, Treatment>> succ = new ArrayList<Map<Study,Treatment>>(treatments.size());
 		for (Treatment treatment : treatments) {
 			Map<Study, Treatment> map = new HashMap<Study, Treatment>(state);
@@ -98,7 +98,6 @@ public class InconsistencyBaselineSearchProblem implements SearchProblem<Map<Stu
 		return succ;
 	}
 
-	@Override
 	public boolean isGoal(Map<Study, Treatment> state) {
 		if (!state.keySet().containsAll(d_studies)) {
 			return false;
