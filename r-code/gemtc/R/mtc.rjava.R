@@ -43,7 +43,7 @@ mtc.data <- function(network) {
 	convertContinuous <- function(m) {
 		measurement <- convertNone(m)
 		measurement$mean <- getBoxedDouble(m$measurement, "getMean")
-		measurement$sd <- getBoxedDouble(m$measurement, "getStdDev")
+		measurement$std.dev <- getBoxedDouble(m$measurement, "getStdDev")
 		measurement$sampleSize <- getBoxedInt(m$measurement, "getSampleSize")
 		measurement
 	}
@@ -70,7 +70,7 @@ mtc.data <- function(network) {
 
 # Read an org.drugis.mtc.model.Network from file and convert it to the S3 class 'mtc.network'
 read.mtc.network <- function(file) {
-	is <- .jcast(.jnew("java/io/FileInputStream", file), "java/io/InputStream")
+	is <- .jcast(.jnew("java/io/FileInputStream", normalizePath(file)), "java/io/InputStream")
 	j.network <- .jcall("org/drugis/mtc/model/JAXBHandler", "Lorg/drugis/mtc/model/Network;", "readNetwork", is)
 
 	network <- list(
@@ -82,21 +82,26 @@ read.mtc.network <- function(file) {
 	network
 }
 
-mtc.network <- function(description, treatments=NULL, data) {
-  if(!is.data.frame(treatments)) { 
-	  ids <- unlist(lapply(treatments, function(t) { t['id'] }))
-	  treatments <- as.data.frame(list(
-		  id = ids,
-	  	description = unlist(lapply(treatments, function(t) { t['description'] }))
-	  ), row.names = ids)
-  }
-  if(!is.data.frame(data)) { 
-	  data <- t(as.data.frame(lapply(data, data.frame)))
-	  row.names(data) <- seq(1:dim(data)[1])
-  }
-  if(is.null(treatments)) { 
-    treatments = unique(data$treatment)
-  }
+mtc.network <- function(data, description="Network", treatments=NULL) {
+	# standardize the data
+	if (!is.data.frame(data)) { 
+		data <- as.data.frame(do.call(rbind, data))
+	}
+	rownames(data) <- seq(1:dim(data)[1])
+
+	# standardize the treatments
+	if (is.null(treatments)) {
+		treatments <- unique(data$treatment)
+	}
+	if (is.list(treatments)) { 
+		treatments <- as.data.frame(do.call(rbind, treatments))
+	}
+	if (is.character(treatments) || is.factor(treatments)) {
+		treatments <- data.frame(id=treatments, description=treatments)
+	}
+	rownames(treatments) <- treatments$id
+
+
 	network <- list(
 		description=description,
 		treatments=treatments,
@@ -109,9 +114,36 @@ mtc.network <- function(description, treatments=NULL, data) {
 }
 
 mtc.network.validate <- function(network) { 
+	# Check that there is some data
 	stopifnot(nrow(network$treatments) > 0)  
 	stopifnot(nrow(network$data) > 0)
-	stopifnot(all(network$data[,'treatment'] %in% network$treatment$id))
+
+	# Check that the treatments are correctly cross-referenced and have valid names
+	stopifnot(all(network$data$treatment %in% network$treatments$id))
+	stopifnot(all(network$treatments$id %in% network$data$treatment))
+	idok <- regexpr("^[A-Za-z0-9_]+$", network$treatment$id) != -1
+	if(!all(idok)) {
+		stop(paste('Treatment name "',
+			network$treatment$id[which(!idok)], '" invalid.\n',
+			' Treatment names may only contain letters, digits, and underscore (_).'), sep='')
+	}
+
+	# Check that the data frame has a sensible combination of columns
+	columns <- colnames(network$data)
+	contColumns <- c('mean', 'std.dev', 'sampleSize')
+	dichColumns <- c('responders', 'sampleSize')
+
+	if (contColumns[1] %in% columns && dichColumns[1] %in% columns) {
+		stop('Ambiguous whether data is continuous or dichotomous: both "mean" and "responders" present.')
+	}
+
+	if (contColumns[1] %in% columns && !all(contColumns %in% columns)) {
+		stop(paste('Continuous data must contain columns:', paste(contColumns, collapse=', ')))
+	}
+
+	if (dichColumns[1] %in% columns && !all(dichColumns %in% columns)) {
+		stop(paste('Dichotomous data must contain columns:', paste(dichColumns, collapse=', ')))
+	}
 }
 
 mtc.network.as.java <- function(network) {
@@ -122,6 +154,7 @@ mtc.network.as.java <- function(network) {
 		.jcast(treatment, "java/lang/Object")
 	}
 	treatments <- apply(network$treatments, 1, treatment)
+	names(treatments) <- network$treatments$id
 
 	appendNone <- function(builder, measurement) {
 		.jcall(builder, "V", "add",
@@ -135,7 +168,7 @@ mtc.network.as.java <- function(network) {
 	appendContinuous <- function(builder, measurement) {
 		.jcall(builder, "V", "add",
 			measurement['study'], treatments[[measurement['treatment']]],
-			as.numeric(measurement['mean']), as.numeric(measurement['sd']), as.integer(measurement['sampleSize']))
+			as.numeric(measurement['mean']), as.numeric(measurement['std.dev']), as.integer(measurement['sampleSize']))
 	}
 
 	createBuilder <- function(type) {
@@ -205,7 +238,7 @@ mtc.model <- function(network, type="Consistency", factor=2.5, n.chain=4) {
 		'createComparisonGraph', j.network)
 	j.generator <- .jcall('org/drugis/mtc/parameterization/AbstractDataStartingValueGenerator',
 		'Lorg/drugis/mtc/parameterization/StartingValueGenerator;',
-		'create', j.network, j.cgraph, rng, factor)
+		'create', j.network, rng, factor)
 
 	# create data structure
 	model <- list(
@@ -257,20 +290,22 @@ mtc.run <- function(model, sampler=NA, n.adapt=5000, n.iter=20000, thin=1) {
 		c(sampler)
 	}
 
-	if (is.na(sampler) || (!is.na(sampler) && sampler != 'YADAS')) {
-		found <- NA
-		i <- 1
-		while (is.na(found) && i <= length(available)) {
-			if (do.call(library, list(available[i], logical.return=TRUE, quietly=TRUE))) {
-				found <- available[i]
-			}
-			i <- i + 1
-		}
-		if (is.na(found)) {
-			stop(paste("Could not find a suitable sampler for", sampler))
-		}
-		sampler <- found
+	have.package <- function(name) {
+		suppressWarnings(do.call(library, list(name, logical.return=TRUE, quietly=TRUE)))
 	}
+
+	found <- NA
+	i <- 1
+	while (is.na(found) && i <= length(available)) {
+		if (available[i] == 'YADAS' || have.package(available[i])) {
+			found <- available[i]
+		}
+		i <- i + 1
+	}
+	if (is.na(found)) {
+		stop(paste("Could not find a suitable sampler for", sampler))
+	}
+	sampler <- found
 
 	# Switch on sampler
 	samples <- if (sampler == 'YADAS') {
@@ -311,8 +346,20 @@ mtc.build.syntaxModel <- function(model, is.jags) {
 	)
 }
 
-mtc.parameters <- function(model) { 
-		sapply(as.list(.jcall(model, 'Ljava/util/List;', 'getParameters')), function(p) { .jcall(p, 'S', 'getName') })
+mtc.parameters <- function(object) { 
+	UseMethod('mtc.parameters', object)
+}
+
+mtc.parameters.jobjRef <- function(j.model) {
+	sapply(as.list(.jcall(j.model, 'Ljava/util/List;', 'getParameters')), function(p) { .jcall(p, 'S', 'getName') })
+}
+
+mtc.parameters.mtc.model <- function(model) {
+	mtc.parameters(model$j.model)
+}
+
+mtc.parameters.mtc.result <- function(result) {
+	colnames(result$samples[[1]])
 }
 
 mtc.run.yadas <- function(model, n.adapt, n.iter, thin) {
