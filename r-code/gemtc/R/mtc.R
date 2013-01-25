@@ -1,7 +1,8 @@
-library('coda')
-library('igraph')
-
 ## mtc.network class methods
+
+forest <- function (x, ...) 
+  UseMethod("forest")
+
 print.mtc.network <- function(x, ...) {
 	cat("MTC dataset: ", x$description, "\n", sep="")
 	print(x$data)
@@ -23,7 +24,7 @@ summary.mtc.network <- function(object, ...) {
 }
 
 plot.mtc.network <- function(x, ...) {
-	plot(mtc.network.graph(x), ...)
+  igraph::plot.igraph(mtc.network.graph(x), ...)
 }
 
 ## mtc.model class methods
@@ -37,7 +38,7 @@ summary.mtc.model <- function(object, ...) {
 }
 
 plot.mtc.model <- function(x, ...) {
-	plot(mtc.model.graph(x), ...)
+  igraph::plot.igraph(mtc.model.graph(x), ...)
 }
 
 ## mtc.result class methods
@@ -55,14 +56,13 @@ plot.mtc.result <- function(x, ...) {
 }
 
 forest.mtc.result <- function(x, ...) { 
-	stats <- summary(x)$statistics
+  stats <- summary(x)$quantiles 
 	stats <- stats[-dim(stats)[1],]
-	forest(metagen(stats[,1], stats[,2]), 
-				 comb.fixed=FALSE, 
-				 comb.random=FALSE,
-				 overall=FALSE, 
-				 leftcols=c("studlab"), 
-				 leftlab=c("Comparison"))
+  data <- data.frame(id=rownames(stats), pe=stats[,3], ci.l=stats[,1], ci.u=stats[,5], group=NA, style="normal")
+  blobbogram(data,
+    columns=c(), column.labels=c(),
+    id.label="Comparison", ci.label="Odds Ratio (95% CrI)", log.scale=TRUE,
+    grouped=FALSE)
 }
 
 as.mcmc.list.mtc.result <- function(x, ...) {
