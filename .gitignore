@@ -6,5 +6,5 @@
 .settings
 version
 *.Rcheck
-r-code/gemtc/inst
+r-code/gemtc/inst/extdata/
 r-code/gemtc.jar/inst/
