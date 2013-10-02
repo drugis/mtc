@@ -16,11 +16,12 @@ Currently, the GeMTC library can be used as either:
     management and model generation capabilities. The generated models
     can be run using JAGS or BUGS, or by GeMTC GUI itself.
 
-  * An R package.
-
   * A Java library  that can also run the MTC models using the YADAS
-    pure Java MCMC package. This is used by [ADDIS][2] to perform
-    network meta-analysis.
+    pure Java MCMC package. This is used by ADDIS2 to perform network
+    meta-analysis.
+
+**WARNING**: The GeMTC Java is no longer maintained. Development is
+being continued in the [GeMTC R package][1].
 
 Requirements
 ------------
@@ -30,10 +31,9 @@ GeMTC is built in [Java][2], and requires Java 6 (JRE 1.6) or newer.
 Optionally, [JAGS][3], [OpenBUGS][4], or [WinBUGS][5] can be used to
 estimate the generated Bayesian models.
 
-The [R][6] package requires [rJava][7] and several other packages.
-
 Versions
 --------
+
 0.14.3: Fixed bug in initial values calculation and minor improvements 
 
 0.14.1: Bugfix and minor improvements.
@@ -80,7 +80,7 @@ Source code can be obtained from [the GeMTC site][1]. In order to build
 GeMTC you need:
 
  - [Java >= 1.6][2]
- - [Maven 2][8]
+ - [Maven 2][7]
  - Other dependencies are downloaded automatically by Maven
 
 To build, use "mvn package". Due to downloading dependencies, the first
@@ -98,12 +98,10 @@ Contact
 Contact the author, Gert van Valkenhoef, g.h.m.van.valkenhoef@rug.nl,
 for more information.
 
-
 [1]: http://drugis.org/gemtc
 [2]: http://www.java.com/getjava/
 [3]: http://sourceforge.net/projects/mcmc-jags/
 [4]: http://www.openbugs.info/
 [5]: http://www.mrc-bsu.cam.ac.uk/bugs/
 [6]: http://r-project.org/
-[7]: http://www.rforge.net/rJava/
-[8]: http://maven.apache.org/
+[7]: http://maven.apache.org/
